@@ -5,19 +5,24 @@ from tensorflow.keras.models import load_model
 from joblib import load
 import matplotlib.pyplot as plt
 
+import os
+
 # Constants
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SEQUENCE_LENGTH = 2400
-MODEL_PATH = "cnn_bilstm_model.keras"
-SCALER_PATH = "scaler.pkl"  # 🔥 Pre-saved scaler from training
+MODEL_PATH = os.path.join(BASE_DIR, "cnn_bilstm_model.keras")
+SCALER_PATH = os.path.join(BASE_DIR, "scaler.pkl")  # 🔥 Pre-saved scaler from training
+
+REQUIRED_FEATURES = ['pH', 'BDecf', 'pCO2', 'BE', 'Apgar1', 'Apgar5', 'NICU days', 'Seizures', 'HIE', 'Intubation', 'Main diag.', 'Other diag.', 'Gest. weeks', 'Weight(g)', 'Sex', 'Age', 'Gravidity', 'Parity', 'Diabetes', 'Hypertension', 'Preeclampsia', 'Liq.', 'Pyrexia', 'Meconium', 'Presentation', 'Induced', 'I.stage', 'NoProgress', 'CK/KP', 'II.stage', 'dbID', 'Rec. type', 'Pos. II.st.', 'Sig2Birth']
 
 # Load model and scaler
 model = load_model(MODEL_PATH)
 scaler = load(SCALER_PATH)
 
 # Streamlit UI
-st.set_page_config(page_title="NeoGnosis", layout="centered")
-st.title("NeoGnosis")
-st.markdown("Let Technology Guide Your Delivery Decisions, with NeoGnosis.")
+st.set_page_config(page_title="RE-MEDI ai", layout="centered")
+st.title("RE-MEDI ai")
+st.markdown("Let Technology Guide Your Delivery Decisions, with re-medi AI.")
 
 # Patient ID input
 patient_id = st.text_input("👤 Enter Patient ID:")
@@ -37,31 +42,38 @@ if patient_id and maternal_file and ctg_file:
 
         # Load maternal data
         maternal_df = pd.read_csv(maternal_file)
-        patient_row = maternal_df[maternal_df["ID"] == patient_id_float]
-
-        if patient_row.empty:
-            st.error("❌ Patient ID not found in the maternal data file.")
+        if "ID" not in maternal_df.columns:
+            st.error("❌ 'ID' column not found in the maternal data file.")
         else:
-            st.subheader("Patient Data Preview:")
-            st.write(patient_row)
+            patient_row = maternal_df[maternal_df["ID"] == patient_id_float]
 
-            # Load and show fetal CTG data
-            ctg_df = pd.read_csv(ctg_file)
-            st.subheader("Fetal Data Preview:")
-            st.dataframe(ctg_df)
-
-            # Interpolate and preprocess CTG
-            ctg_df = ctg_df.interpolate(method="linear", limit_direction="both")
-
-            if "FHR" not in ctg_df.columns or "UC" not in ctg_df.columns:
-                st.error("❌ CTG file must contain 'FHR' and 'UC' columns.")
+            if patient_row.empty:
+                st.error("❌ Patient ID not found in the maternal data file.")
             else:
-                # Prepare maternal features
-                maternal_features = patient_row.drop(columns=["ID", "Deliv. type"], errors='ignore').values
-                maternal_scaled = scaler.transform(maternal_features)
+                missing_cols = [col for col in REQUIRED_FEATURES if col not in patient_row.columns]
+                if missing_cols:
+                    st.error(f"❌ Maternal data file is missing required columns. Ensure you uploaded additional_db.csv.")
+                else:
+                    st.subheader("Patient Data Preview:")
+                    st.write(patient_row)
 
-                # Prepare CTG signal
-                signal = ctg_df[["FHR", "UC"]].values
+                    # Load and show fetal CTG data
+                    ctg_df = pd.read_csv(ctg_file)
+                    st.subheader("Fetal Data Preview:")
+                    st.dataframe(ctg_df)
+
+                    # Interpolate and preprocess CTG
+                    ctg_df = ctg_df.interpolate(method="linear", limit_direction="both")
+
+                    if "FHR" not in ctg_df.columns or "UC" not in ctg_df.columns:
+                        st.error("❌ CTG file must contain 'FHR' and 'UC' columns.")
+                    else:
+                        # Prepare maternal features
+                        maternal_features = patient_row[REQUIRED_FEATURES].values
+                        maternal_scaled = scaler.transform(maternal_features)
+
+                        # Prepare CTG signal
+                        signal = ctg_df[["FHR", "UC"]].values
                 if signal.shape[0] < SEQUENCE_LENGTH:
                     pad = np.zeros((SEQUENCE_LENGTH - signal.shape[0], 2))
                     signal = np.vstack([signal, pad])
@@ -109,7 +121,7 @@ if patient_id and maternal_file and ctg_file:
                 st.markdown("---")
                 st.caption("🩺 This tool is designed to assist healthcare professionals and does not replace clinical expertise.")
 
-    except ValueError:
-        st.error("⚠️ Please enter a valid numeric Patient ID.")
+    except ValueError as e:
+        st.error(f"⚠️ ValueError: {e}")
     except Exception as e:
         st.error(f"⚠️ An unexpected error occurred: {e}")
